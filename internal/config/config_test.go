@@ -60,6 +60,49 @@ func TestMergeKeepsWeightsAddsNewAtOne(t *testing.T) {
 	}
 }
 
+func TestMergeKeepMissingRetainsStaleRoutes(t *testing.T) {
+	existing := config.Default()
+	existing.Ordinary.Routes = []config.Route{
+		{ID: "acme-fast", Circuit: "acme:fast", Provider: "acme", Model: "fast", Weight: 25},
+		{ID: "gone", Circuit: "old:gone", Provider: "old", Model: "gone", Weight: 9},
+	}
+	existing.Tiers = map[string]config.Tier{
+		"strong":    {Provider: "acme", Model: "fast", Effort: "high"},
+		"strongest": {Provider: "old", Model: "gone", Effort: "xhigh"},
+	}
+	catalog := []config.CatalogItem{
+		{Provider: "acme", Model: "fast"},
+		{Provider: "acme", Model: "pro"},
+	}
+	generated := config.GenerateFromCatalog(catalog, 10)
+	merged, summary := config.MergeKeepMissing(existing, generated)
+	byID := config.RouteByID(merged)
+	if byID["acme-fast"].Weight != 25 {
+		t.Fatalf("kept weight=%d", byID["acme-fast"].Weight)
+	}
+	if byID["acme-pro"].Weight != 1 {
+		t.Fatalf("new weight=%d", byID["acme-pro"].Weight)
+	}
+	if byID["gone"].Weight != 9 {
+		t.Fatalf("stale weight=%d", byID["gone"].Weight)
+	}
+	if len(summary.Removed) != 0 {
+		t.Fatalf("removed=%v", summary.Removed)
+	}
+	if len(summary.Stale) != 1 || summary.Stale[0] != "gone" {
+		t.Fatalf("stale=%v", summary.Stale)
+	}
+	if _, ok := merged.Tiers["strongest"]; !ok {
+		t.Fatal("expected stale strongest tier kept")
+	}
+	if len(summary.DroppedTiers) != 0 {
+		t.Fatalf("dropped_tiers=%v", summary.DroppedTiers)
+	}
+	if len(summary.StaleTiers) != 1 || summary.StaleTiers[0] != "strongest" {
+		t.Fatalf("stale_tiers=%v", summary.StaleTiers)
+	}
+}
+
 func TestRenderRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("QIANJI_HOME", dir)
@@ -85,7 +128,6 @@ func TestRenderRoundTrip(t *testing.T) {
 }
 
 func TestSuggestedTiersPrefersPublicCatalogThenFirst(t *testing.T) {
-	t.Setenv("PI_AGENT_HOME", t.TempDir())
 	opus := config.SuggestedTiers([]config.CatalogItem{
 		{Provider: "acme", Model: "fast"},
 		{Provider: "anthropic", Model: "claude-opus-4-8"},
@@ -95,9 +137,10 @@ func TestSuggestedTiersPrefersPublicCatalogThenFirst(t *testing.T) {
 	}
 	first := config.SuggestedTiers([]config.CatalogItem{
 		{Provider: "acme", Model: "fast"},
+		{Provider: "acme", Model: "pro"},
 	})
 	if first["strong"].Provider != "acme" || first["strong"].Model != "fast" {
-		t.Fatalf("%+v", first)
+		t.Fatalf("expected first catalog item, not a later one: %+v", first)
 	}
 }
 

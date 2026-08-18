@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 const AppVersion = "2.0.0"
 
 func Main(args []string) int {
-	loadDotEnv()
 	if len(args) == 0 {
 		printUsage()
 		return 2
@@ -72,6 +70,7 @@ Usage:
              [--timeout SEC] [--max-attempts N]
              [--tier TIER] [--route ID] [--provider NAME] [--model ID]
              [--effort LEVEL] [--affinity-key TEXT]
+      --timeout 0 = auto: 900s ordinary / 1800s strong / 2400s strongest
   qianji status [--json]
   qianji choose [--json] [--affinity-key TEXT]
   qianji simulate [--count N] [--seed N]
@@ -81,30 +80,8 @@ Usage:
 `, AppVersion)
 }
 
-func loadDotEnv() {
-	path := filepath.Join(config.Home(), ".env")
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	for _, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
-			continue
-		}
-		key, value, _ := strings.Cut(line, "=")
-		key = strings.TrimSpace(key)
-		if strings.HasPrefix(key, "export ") {
-			key = strings.TrimSpace(strings.TrimPrefix(key, "export "))
-		}
-		value = strings.Trim(strings.TrimSpace(value), `"'`)
-		if key == "" {
-			continue
-		}
-		if _, ok := os.LookupEnv(key); !ok {
-			_ = os.Setenv(key, value)
-		}
-	}
+func catalogCheckedToday(checkedOn, previousSHA, today string) bool {
+	return checkedOn == today && previousSHA != ""
 }
 
 func todayLocal() string {
@@ -128,11 +105,6 @@ func maybeDailySync() {
 		fmt.Fprintln(os.Stderr, "qianji: Pi CLI not found; skip daily sync. Run `qianji init` after installing Pi.")
 		return
 	}
-	catalog, digest, err := pi.FetchCatalog()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "qianji: daily Pi catalog check failed: %v\n", err)
-		return
-	}
 	today := todayLocal()
 	cfg := config.MustLoad()
 	var previous, checkedOn string
@@ -141,7 +113,12 @@ func maybeDailySync() {
 		checkedOn = st.PiSync.CheckedOn
 		return nil
 	})
-	if checkedOn == today && previous != "" {
+	if catalogCheckedToday(checkedOn, previous, today) {
+		return
+	}
+	catalog, digest, err := pi.FetchCatalog()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "qianji: daily Pi catalog check failed: %v\n", err)
 		return
 	}
 	if previous == digest && fileExists(config.Path()) {
@@ -158,18 +135,20 @@ func maybeDailySync() {
 	if previous != "" {
 		reason = "daily-pi-config-change"
 	}
-	result, err := syncFromPi(false, reason, catalog, digest)
+	dropMissing := !fileExists(config.Path())
+	result, err := syncFromPi(false, reason, catalog, digest, dropMissing)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "qianji: daily sync failed: %v\n", err)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "qianji: synced from Pi (%s) sha256=%s… kept=%d added=%d removed=%d\n",
-		result.Reason, shortSHA(result.SHA256), len(result.Kept), len(result.Added), len(result.Removed))
+	fmt.Fprintf(os.Stderr, "qianji: synced from Pi (%s) sha256=%s… kept=%d added=%d stale=%d\n",
+		result.Reason, shortSHA(result.SHA256), len(result.Kept), len(result.Added), len(result.Stale))
 	if len(result.Added) > 0 {
 		fmt.Fprintf(os.Stderr, "qianji: new routes at weight=1: %s\n", strings.Join(result.Added, ", "))
 	}
-	if len(result.Removed) > 0 {
-		fmt.Fprintf(os.Stderr, "qianji: dropped routes missing from Pi: %s\n", strings.Join(result.Removed, ", "))
+	if len(result.Stale) > 0 {
+		fmt.Fprintf(os.Stderr, "qianji: Pi catalog no longer lists %s (kept; run `qianji init` to drop)\n",
+			strings.Join(result.Stale, ", "))
 	}
 }
 
@@ -203,11 +182,13 @@ type syncResult struct {
 	Kept         []string `json:"kept"`
 	Removed      []string `json:"removed"`
 	DroppedTiers []string `json:"dropped_tiers"`
+	Stale        []string `json:"stale"`
+	StaleTiers   []string `json:"stale_tiers"`
 	Routes       int      `json:"routes"`
 	Force        bool     `json:"force,omitempty"`
 }
 
-func syncFromPi(force bool, reason string, catalog []config.CatalogItem, digest string) (syncResult, error) {
+func syncFromPi(force bool, reason string, catalog []config.CatalogItem, digest string, dropMissing bool) (syncResult, error) {
 	if catalog == nil {
 		var err error
 		catalog, digest, err = pi.FetchCatalog()
@@ -216,7 +197,8 @@ func syncFromPi(force bool, reason string, catalog []config.CatalogItem, digest 
 		}
 	}
 	existing := config.Default()
-	if fileExists(config.Path()) {
+	configPresent := fileExists(config.Path())
+	if configPresent {
 		var err error
 		existing, err = config.Load()
 		if err != nil {
@@ -224,11 +206,24 @@ func syncFromPi(force bool, reason string, catalog []config.CatalogItem, digest 
 		}
 	}
 	generated := config.GenerateFromCatalog(catalog, 10)
-	merged, summary := config.Merge(existing, generated)
-	if err := config.WriteAtomic(merged, digest); err != nil {
-		return syncResult{}, err
+	var summary config.MergeSummary
+	var merged config.Config
+	if dropMissing {
+		merged, summary = config.Merge(existing, generated)
+	} else {
+		merged, summary = config.MergeKeepMissing(existing, generated)
 	}
-	_ = state.WithLock(merged, true, func(st *state.State) error {
+	changed := !configPresent || len(summary.Added) > 0 || len(summary.Removed) > 0 || len(summary.DroppedTiers) > 0
+	if changed {
+		if err := config.WriteAtomic(merged, digest); err != nil {
+			return syncResult{}, err
+		}
+	}
+	stateCfg := merged
+	if !changed {
+		stateCfg = existing
+	}
+	_ = state.WithLock(stateCfg, true, func(st *state.State) error {
 		st.PiSync = state.PiSync{
 			SHA256:    digest,
 			CheckedOn: todayLocal(),
@@ -250,6 +245,8 @@ func syncFromPi(force bool, reason string, catalog []config.CatalogItem, digest 
 		Kept:         nonempty(summary.Kept),
 		Removed:      nonempty(summary.Removed),
 		DroppedTiers: nonempty(summary.DroppedTiers),
+		Stale:        nonempty(summary.Stale),
+		StaleTiers:   nonempty(summary.StaleTiers),
 		Routes:       summary.Routes,
 		Force:        force,
 	}, nil

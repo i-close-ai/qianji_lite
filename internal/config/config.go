@@ -90,17 +90,6 @@ func LockPath() string {
 	return filepath.Join(Home(), ".lock")
 }
 
-func PiAgentHome() string {
-	if v := strings.TrimSpace(os.Getenv("PI_AGENT_HOME")); v != "" {
-		return v
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".", ".pi", "agent")
-	}
-	return filepath.Join(home, ".pi", "agent")
-}
-
 func Load() (Config, error) {
 	cfg := Default()
 	path := Path()

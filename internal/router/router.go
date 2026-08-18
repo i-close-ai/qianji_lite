@@ -94,12 +94,15 @@ func weightedChoice(candidates []config.Route, rng *rand.Rand) config.Route {
 	return candidates[len(candidates)-1]
 }
 
-func finalize(st *state.State, route config.Route, via string) config.Route {
+func finalize(route config.Route, via string) config.Route {
 	route.Via = via
-	c := st.Routes[route.ID]
-	c.Selections++
-	st.Routes[route.ID] = c
 	return route
+}
+
+func RecordSelection(st *state.State, routeID string) {
+	c := st.Routes[routeID]
+	c.Selections++
+	st.Routes[routeID] = c
 }
 
 func Select(cfg config.Config, st *state.State, now int64, affinityHash string, exclude map[string]struct{}, rng *rand.Rand) *config.Route {
@@ -124,12 +127,12 @@ func Select(cfg config.Config, st *state.State, now int64, affinityHash string, 
 				}
 			}
 			if sticky != nil && entry.LastUsed+ttl >= now && rng.Float64() < stickyP {
-				selected := finalize(st, *sticky, "affinity")
+				selected := finalize(*sticky, "affinity")
 				return &selected
 			}
 		}
 	}
-	selected := finalize(st, weightedChoice(eligible, rng), "weighted_random")
+	selected := finalize(weightedChoice(eligible, rng), "weighted_random")
 	return &selected
 }
 

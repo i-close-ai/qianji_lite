@@ -1,9 +1,6 @@
 package config
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -17,6 +14,8 @@ type MergeSummary struct {
 	Kept         []string `json:"kept"`
 	Removed      []string `json:"removed"`
 	DroppedTiers []string `json:"dropped_tiers"`
+	Stale        []string `json:"stale"`
+	StaleTiers   []string `json:"stale_tiers"`
 	Routes       int      `json:"routes"`
 }
 
@@ -40,28 +39,6 @@ func SuggestedTiers(catalog []CatalogItem) map[string]Tier {
 			tiers["strongest"] = Tier{Provider: c.provider, Model: c.model, Effort: c.strongest}
 			tiers["main"] = tiers["strong"]
 			tiers["important"] = tiers["strongest"]
-			return tiers
-		}
-	}
-	settings := loadPiSettings()
-	provider := strings.TrimSpace(asString(settings["defaultProvider"]))
-	model := strings.TrimSpace(asString(settings["defaultModel"]))
-	if provider != "" && model != "" {
-		if _, ok := available[RouteKey(provider, model)]; ok {
-			effort := strings.TrimSpace(asString(settings["defaultThinkingLevel"]))
-			if effort == "" {
-				effort = "high"
-			}
-			norm, err := NormalizeEffort(effort)
-			if err != nil || norm == "" {
-				norm = "high"
-			}
-			strongest := "xhigh"
-			if norm == "xhigh" {
-				strongest = norm
-			}
-			tiers["strong"] = Tier{Provider: provider, Model: model, Effort: norm}
-			tiers["strongest"] = Tier{Provider: provider, Model: model, Effort: strongest}
 			return tiers
 		}
 	}
@@ -92,6 +69,17 @@ func GenerateFromCatalog(catalog []CatalogItem, newRouteWeight int) Config {
 }
 
 func Merge(existing, generated Config) (Config, MergeSummary) {
+	return merge(existing, generated, true)
+}
+
+// MergeKeepMissing adds new catalog routes but does not drop routes or tiers
+// that disappeared from Pi. Use this for incidental daily sync; explicit
+// `qianji init` / `reinit` should call Merge (drop missing).
+func MergeKeepMissing(existing, generated Config) (Config, MergeSummary) {
+	return merge(existing, generated, false)
+}
+
+func merge(existing, generated Config, dropMissing bool) (Config, MergeSummary) {
 	merged := Default()
 	if existing.Executor.Backend != "" || existing.Executor.Command != "" {
 		merged.Executor = existing.Executor
@@ -115,7 +103,7 @@ func Merge(existing, generated Config) (Config, MergeSummary) {
 	}
 
 	tiers := map[string]Tier{}
-	var dropped []string
+	var dropped, staleTiers []string
 	for name, tier := range existing.Tiers {
 		key := RouteKey(strings.TrimSpace(tier.Provider), strings.TrimSpace(tier.Model))
 		if _, ok := available[key]; ok {
@@ -123,9 +111,17 @@ func Merge(existing, generated Config) (Config, MergeSummary) {
 			tier.Effort = effort
 			tier.Effect = ""
 			tiers[name] = tier
-		} else {
-			dropped = append(dropped, name)
+			continue
 		}
+		if dropMissing {
+			dropped = append(dropped, name)
+			continue
+		}
+		effort, _ := NormalizeEffort(firstNonEmpty(tier.Effort, tier.Effect))
+		tier.Effort = effort
+		tier.Effect = ""
+		tiers[name] = tier
+		staleTiers = append(staleTiers, name)
 	}
 	for name, tier := range generated.Tiers {
 		if _, ok := tiers[name]; !ok {
@@ -165,15 +161,21 @@ func Merge(existing, generated Config) (Config, MergeSummary) {
 			added = append(added, item.ID)
 		}
 	}
-	var removed []string
+	var removed, stale []string
 	for _, route := range existing.Ordinary.Routes {
-		if _, ok := available[RouteKey(route.Provider, route.Model)]; !ok {
-			id := route.ID
-			if id == "" {
-				id = route.Provider + "/" + route.Model
-			}
-			removed = append(removed, id)
+		if _, ok := available[RouteKey(route.Provider, route.Model)]; ok {
+			continue
 		}
+		id := route.ID
+		if id == "" {
+			id = route.Provider + "/" + route.Model
+		}
+		if dropMissing {
+			removed = append(removed, id)
+			continue
+		}
+		routes = append(routes, route)
+		stale = append(stale, id)
 	}
 	merged.Ordinary.Routes = routes
 	return merged, MergeSummary{
@@ -181,24 +183,8 @@ func Merge(existing, generated Config) (Config, MergeSummary) {
 		Kept:         kept,
 		Removed:      removed,
 		DroppedTiers: dropped,
+		Stale:        stale,
+		StaleTiers:   staleTiers,
 		Routes:       len(routes),
 	}
-}
-
-func loadPiSettings() map[string]any {
-	path := filepath.Join(PiAgentHome(), "settings.json")
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return map[string]any{}
-	}
-	var out map[string]any
-	if json.Unmarshal(raw, &out) != nil {
-		return map[string]any{}
-	}
-	return out
-}
-
-func asString(v any) string {
-	s, _ := v.(string)
-	return s
 }

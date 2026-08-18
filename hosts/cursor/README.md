@@ -5,5 +5,6 @@ Optional. The product is the Go CLI plus the host-agnostic skill
 Cursor discovers the skill from `~/.agents/skills/qianji` or
 `~/.cursor/skills/qianji`.
 
-This directory only adds a Cursor slash command. Keep `block_until_ms` ≥ 600000
-when the agent runs `qianji run` through Cursor's Shell tool.
+This directory only adds a Cursor slash command. Set `block_until_ms` to at
+least `--timeout × 1000` (ordinary pool: 2×). Skill defaults: 900s / 1800s /
+2400s; large or 强/最强 tasks use 3600s (`block_until_ms` 3600000).

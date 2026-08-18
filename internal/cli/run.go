@@ -22,7 +22,7 @@ func cmdRun(args []string) int {
 	prompt := fs.String("prompt", "", "")
 	promptFile := fs.String("prompt-file", "", "")
 	workdir := fs.String("workdir", "", "")
-	timeout := fs.Int("timeout", 600, "")
+	timeout := fs.Int("timeout", 0, "")
 	maxAttempts := fs.Int("max-attempts", 8, "")
 	routeID := fs.String("route", "", "")
 	tier := fs.String("tier", "", "")
@@ -47,6 +47,11 @@ func cmdRun(args []string) int {
 			return fail(err)
 		}
 	}
+	timeoutSec := *timeout
+	if timeoutSec <= 0 {
+		timeoutSec = defaultRunTimeout(tierName)
+	}
+	fmt.Fprintf(os.Stderr, "qianji timeout: %ds\n", timeoutSec)
 	explicit := *routeID != "" || tierName != "" || *provider != "" || *model != ""
 	if explicit {
 		route, err := resolveExplicit(cfg, *routeID, tierName, *provider, *model, *effort, *effect)
@@ -54,7 +59,7 @@ func cmdRun(args []string) int {
 			return fail(err)
 		}
 		printRoute(route)
-		res := pi.RunRoute(cfg, route, text, *workdir, *timeout)
+		res := pi.RunRoute(cfg, route, text, *workdir, timeoutSec)
 		if res.OK {
 			writeOutput(res.Output)
 			if _, ok := config.RouteByID(cfg)[route.ID]; ok {
@@ -93,6 +98,8 @@ func cmdRun(args []string) int {
 			route = router.Select(cfg, st, -1, affinityHash, exclude, nil)
 			if route == nil {
 				earliest = router.EarliestBlocked(st)
+			} else {
+				router.RecordSelection(st, route.ID)
 			}
 			return nil
 		})
@@ -106,7 +113,7 @@ func cmdRun(args []string) int {
 		chosen := *route
 		attempted = append(attempted, chosen.ID)
 		printRoute(chosen)
-		res := pi.RunRoute(cfg, chosen, text, *workdir, *timeout)
+		res := pi.RunRoute(cfg, chosen, text, *workdir, timeoutSec)
 		if res.OK {
 			_ = state.WithLock(cfg, true, func(st *state.State) error {
 				router.MarkSuccess(cfg, st, chosen.ID, -1)
@@ -146,6 +153,23 @@ func cmdRun(args []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "qianji: exhausted %d attempts: %s\n", len(attempted), strings.Join(attempted, ", "))
 	return 1
+}
+
+const (
+	timeoutOrdinary  = 900
+	timeoutStrong    = 1800
+	timeoutStrongest = 2400
+)
+
+func defaultRunTimeout(tier string) int {
+	switch tier {
+	case "strong":
+		return timeoutStrong
+	case "strongest":
+		return timeoutStrongest
+	default:
+		return timeoutOrdinary
+	}
 }
 
 func readPrompt(prompt, promptFile string) (string, error) {
@@ -278,7 +302,7 @@ func cmdChoose(args []string) int {
 	var selected *config.Route
 	var selectedState state.Counters
 	var earliest int64
-	err := state.WithLock(cfg, true, func(st *state.State) error {
+	err := state.WithLock(cfg, false, func(st *state.State) error {
 		selected = router.Select(cfg, st, -1, affinityHash, nil, nil)
 		if selected == nil {
 			earliest = router.EarliestBlocked(st)

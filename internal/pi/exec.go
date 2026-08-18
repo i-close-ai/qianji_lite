@@ -23,6 +23,7 @@ func LooksLikeFailure(returncode int, output string) bool {
 	if returncode != 0 || text == "" {
 		return true
 	}
+	head := failureHead(text)
 	prefixes := []string{
 		"API call failed after ",
 		"No inference provider configured",
@@ -34,16 +35,17 @@ func LooksLikeFailure(returncode int, output string) bool {
 		"Billing or credits exhausted",
 	}
 	for _, prefix := range prefixes {
-		if strings.HasPrefix(text, prefix) {
+		if strings.HasPrefix(head, prefix) {
 			return true
 		}
 	}
-	lowered := strings.ToLower(text)
+	lowered := strings.ToLower(head)
 	markers := []string{
 		"billing, credits, or account entitlement is exhausted",
 		"exceeded your current quota",
-		"unauthorized",
 		"invalid api key",
+		"no api key found",
+		"authentication failed",
 	}
 	for _, marker := range markers {
 		if strings.Contains(lowered, marker) {
@@ -51,6 +53,26 @@ func LooksLikeFailure(returncode int, output string) bool {
 		}
 	}
 	return false
+}
+
+func failureHead(text string) string {
+	var b strings.Builder
+	n := 0
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if n > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(line)
+		n++
+		if n >= 3 || b.Len() >= 2000 {
+			break
+		}
+	}
+	return b.String()
 }
 
 func FindConfigured(cfg config.Config) (string, error) {
@@ -88,11 +110,11 @@ func RunRoute(cfg config.Config, route config.Route, prompt, workdir string, tim
 	if route.Effort != "" {
 		args = append(args, "--thinking", route.Effort)
 	}
-	args = append(args, prompt)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Stdin = strings.NewReader(prompt)
 	if workdir != "" {
 		cmd.Dir = workdir
 	}

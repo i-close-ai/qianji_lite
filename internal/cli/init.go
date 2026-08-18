@@ -44,6 +44,16 @@ func cmdInit(args []string, forceReinit bool) int {
 			return nil
 		})
 		if previous == digest {
+			_ = state.WithLock(cfg, true, func(st *state.State) error {
+				st.PiSync.CheckedOn = todayLocal()
+				st.PiSync.SHA256 = digest
+				st.PiSync.Source = "pi --list-models"
+				st.PiSync.Models = len(catalog)
+				if st.PiSync.Reason == "" {
+					st.PiSync.Reason = "unchanged"
+				}
+				return nil
+			})
 			ids := make([]string, 0, len(cfg.Ordinary.Routes))
 			for _, route := range cfg.Ordinary.Routes {
 				ids = append(ids, route.ID)
@@ -59,6 +69,8 @@ func cmdInit(args []string, forceReinit bool) int {
 				Kept:         ids,
 				Removed:      []string{},
 				DroppedTiers: []string{},
+				Stale:        []string{},
+				StaleTiers:   []string{},
 				Routes:       len(cfg.Ordinary.Routes),
 			}
 			if asJSON {
@@ -75,7 +87,7 @@ func cmdInit(args []string, forceReinit bool) int {
 	} else if force {
 		reason = "init-force"
 	}
-	result, err := syncFromPi(force, reason, catalog, digest)
+	result, err := syncFromPi(force, reason, catalog, digest, true)
 	if err != nil {
 		return fail(err)
 	}

@@ -35,7 +35,7 @@ directory, or tell the agent to run `qianji` directly.
 1. Detect the user's 口令 (ordinary / 强模型 / 最强模型).
 2. Run `qianji run ...` in a shell. Do not reimplement routing.
 3. For ordinary pool, pass `--affinity-key` as the **original user text**.
-4. Wait long enough (at least 10 minutes).
+4. Always pass `--timeout` (900 ordinary / 1800 strong / 2400 strongest / 3600 large). Wait at least that long; ordinary pool: 2× timeout.
 5. Report `via=`, provider, model, effort, exit code.
 6. Never print API keys or copy them into Qianji files.
 

@@ -6,8 +6,9 @@ Two layers: change official Pi first, then `qianji init`. Do not add custom scri
 
 Docs: [models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)
 
-Qianji never reads this file. Put provider credentials only in Pi, using Pi's
-own mechanisms (environment variable reference, `/login`, or a secret helper).
+Qianji never reads this file, nor `auth.json` or `settings.json`. Put provider
+credentials only in Pi, using Pi's own mechanisms (environment variable
+reference, `/login`, or a secret helper).
 
 Example **shape** (replace values; do not commit real keys):
 

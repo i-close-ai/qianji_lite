@@ -46,4 +46,10 @@ func TestLooksLikeFailure(t *testing.T) {
 	if pi.LooksLikeFailure(0, "patched the tests successfully") {
 		t.Fatal("false positive")
 	}
+	if pi.LooksLikeFailure(0, "The handler returns unauthorized for missing tokens.\nThen it writes the tests.") {
+		t.Fatal("unauthorized in task output should not count as provider failure")
+	}
+	if !pi.LooksLikeFailure(0, "No API key found for provider acme") {
+		t.Fatal("api key head")
+	}
 }

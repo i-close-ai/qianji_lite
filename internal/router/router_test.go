@@ -65,6 +65,23 @@ func TestCircuitSkipsBlocked(t *testing.T) {
 	}
 }
 
+func TestSelectDoesNotRecordSelection(t *testing.T) {
+	cfg := testCfg()
+	st := state.Default(cfg)
+	rng := rand.New(rand.NewSource(5))
+	route := router.Select(cfg, &st, 0, "", nil, rng)
+	if route == nil {
+		t.Fatal("nil route")
+	}
+	if st.Routes[route.ID].Selections != 0 {
+		t.Fatalf("select should not persist attempts, got %d", st.Routes[route.ID].Selections)
+	}
+	router.RecordSelection(&st, route.ID)
+	if st.Routes[route.ID].Selections != 1 {
+		t.Fatal("record should increment")
+	}
+}
+
 func TestTimeoutDoesNotUseCircuitInSelectExclude(t *testing.T) {
 	cfg := testCfg()
 	st := state.Default(cfg)

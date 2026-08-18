@@ -19,37 +19,6 @@ type MergeSummary struct {
 	Routes       int      `json:"routes"`
 }
 
-func SuggestedTiers(catalog []CatalogItem) map[string]Tier {
-	available := map[string]struct{}{}
-	for _, item := range catalog {
-		available[RouteKey(item.Provider, item.Model)] = struct{}{}
-	}
-	candidates := []struct {
-		provider, model, high, strongest string
-	}{
-		{"anthropic", "claude-opus-4-8", "high", "max"},
-		{"anthropic", "claude-opus-4-7", "high", "max"},
-		{"openai", "gpt-5.6", "high", "xhigh"},
-		{"openai", "gpt-5", "high", "high"},
-	}
-	tiers := map[string]Tier{}
-	for _, c := range candidates {
-		if _, ok := available[RouteKey(c.provider, c.model)]; ok {
-			tiers["strong"] = Tier{Provider: c.provider, Model: c.model, Effort: c.high}
-			tiers["strongest"] = Tier{Provider: c.provider, Model: c.model, Effort: c.strongest}
-			tiers["main"] = tiers["strong"]
-			tiers["important"] = tiers["strongest"]
-			return tiers
-		}
-	}
-	if len(catalog) > 0 {
-		item := catalog[0]
-		tiers["strong"] = Tier{Provider: item.Provider, Model: item.Model, Effort: "high"}
-		tiers["strongest"] = Tier{Provider: item.Provider, Model: item.Model, Effort: "xhigh"}
-	}
-	return tiers
-}
-
 func GenerateFromCatalog(catalog []CatalogItem, newRouteWeight int) Config {
 	cfg := Default()
 	cfg.Tiers = SuggestedTiers(catalog)
@@ -105,6 +74,9 @@ func merge(existing, generated Config, dropMissing bool) (Config, MergeSummary) 
 	tiers := map[string]Tier{}
 	var dropped, staleTiers []string
 	for name, tier := range existing.Tiers {
+		if dropMissing && isCanonicalTier(name) {
+			continue
+		}
 		key := RouteKey(strings.TrimSpace(tier.Provider), strings.TrimSpace(tier.Model))
 		if _, ok := available[key]; ok {
 			effort, _ := NormalizeEffort(firstNonEmpty(tier.Effort, tier.Effect))

@@ -127,7 +127,7 @@ func TestRenderRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSuggestedTiersPrefersPublicCatalogThenFirst(t *testing.T) {
+func TestSuggestedTiersRanksByModelFamilyNotCatalogOrder(t *testing.T) {
 	opus := config.SuggestedTiers([]config.CatalogItem{
 		{Provider: "acme", Model: "fast"},
 		{Provider: "anthropic", Model: "claude-opus-4-8"},
@@ -135,12 +135,57 @@ func TestSuggestedTiersPrefersPublicCatalogThenFirst(t *testing.T) {
 	if opus["strong"].Model != "claude-opus-4-8" || opus["strongest"].Effort != "max" {
 		t.Fatalf("%+v", opus)
 	}
-	first := config.SuggestedTiers([]config.CatalogItem{
-		{Provider: "acme", Model: "fast"},
-		{Provider: "acme", Model: "pro"},
+
+	sol := config.SuggestedTiers([]config.CatalogItem{
+		{Provider: "aibase", Model: "deepseek-v4-flash"},
+		{Provider: "aibase", Model: "deepseek-v4-pro"},
+		{Provider: "onehz", Model: "gpt-5.6-luna"},
+		{Provider: "onehz", Model: "gpt-5.6-sol"},
 	})
-	if first["strong"].Provider != "acme" || first["strong"].Model != "fast" {
-		t.Fatalf("expected first catalog item, not a later one: %+v", first)
+	if sol["strong"].Provider != "onehz" || sol["strong"].Model != "gpt-5.6-sol" {
+		t.Fatalf("expected gpt-5.6-sol over deepseek, got %+v", sol)
+	}
+	if sol["strongest"].Effort != "xhigh" {
+		t.Fatalf("expected xhigh for gpt-5.6, got %+v", sol["strongest"])
+	}
+
+	tied := config.SuggestedTiers([]config.CatalogItem{
+		{Provider: "acme", Model: "foo"},
+		{Provider: "acme", Model: "bar"},
+	})
+	if tied["strong"].Model != "foo" {
+		t.Fatalf("equal unknown models should keep catalog order: %+v", tied)
+	}
+}
+
+func TestStrengthScoreFlashBelowProAndGPT(t *testing.T) {
+	flash := config.StrengthScore("aibase", "deepseek-v4-flash")
+	pro := config.StrengthScore("aibase", "deepseek-v4-pro")
+	sol := config.StrengthScore("onehz", "gpt-5.6-sol")
+	if !(sol > pro && pro > flash) {
+		t.Fatalf("sol=%d pro=%d flash=%d", sol, pro, flash)
+	}
+}
+
+func TestMergeInitRetargetsCanonicalTiers(t *testing.T) {
+	existing := config.Default()
+	existing.Ordinary.Routes = []config.Route{
+		{ID: "aibase-deepseek-v4-flash", Circuit: "aibase:deepseek-v4-flash", Provider: "aibase", Model: "deepseek-v4-flash", Weight: 10},
+		{ID: "onehz-gpt-5.6-sol", Circuit: "onehz:gpt-5.6-sol", Provider: "onehz", Model: "gpt-5.6-sol", Weight: 10},
+	}
+	existing.Tiers = map[string]config.Tier{
+		"strong": {Provider: "aibase", Model: "deepseek-v4-flash", Effort: "high"},
+	}
+	generated := config.GenerateFromCatalog([]config.CatalogItem{
+		{Provider: "aibase", Model: "deepseek-v4-flash"},
+		{Provider: "onehz", Model: "gpt-5.6-sol"},
+	}, 10)
+	merged, _ := config.Merge(existing, generated)
+	if merged.Tiers["strong"].Model != "gpt-5.6-sol" {
+		t.Fatalf("init should retarget strong: %+v", merged.Tiers)
+	}
+	if merged.Ordinary.Routes[0].Weight != 10 || merged.Ordinary.Routes[1].Weight != 10 {
+		t.Fatalf("weights should be kept: %+v", merged.Ordinary.Routes)
 	}
 }
 

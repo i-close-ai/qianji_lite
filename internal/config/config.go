@@ -256,10 +256,10 @@ func tomlQuote(value string) string {
 
 func Render(cfg Config, sha256 string) string {
 	var b strings.Builder
-	b.WriteString("# Qianji routing policy. Generated from `pi --list-models` (custom + official providers).\n")
+	b.WriteString("# Qianji routing policy. Generated from `pi --list-models`, then a cheap live probe.\n")
 	b.WriteString("# Pi owns providers, models, and API keys. Qianji only owns weights, tiers, and circuits.\n")
 	b.WriteString("# pi_catalog_sha256 = " + sha256 + "\n")
-	b.WriteString("# Re-run `qianji init` or `qianji reinit` after Pi models/auth change. First command each day also checks.\n")
+	b.WriteString("# Only models that answer a thinking=off / no-tools probe are kept. Re-run `qianji init` after Pi models/auth change.\n")
 	b.WriteString("\n")
 	b.WriteString("version = 1\n\n")
 	b.WriteString("[executor]\n")

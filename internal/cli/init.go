@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/i-close-ai/qianji_lite/internal/config"
 	"github.com/i-close-ai/qianji_lite/internal/pi"
-	"github.com/i-close-ai/qianji_lite/internal/state"
 )
 
 func cmdInit(args []string, forceReinit bool) int {
@@ -33,61 +31,20 @@ func cmdInit(args []string, forceReinit bool) int {
 	if err != nil {
 		return fail(err)
 	}
-	if !force && fileExists(config.Path()) {
-		cfg, err := config.Load()
-		if err != nil {
-			return fail(err)
-		}
-		var previous string
-		_ = state.WithLock(cfg, false, func(st *state.State) error {
-			previous = st.PiSync.SHA256
-			return nil
-		})
-		if previous == digest {
-			_ = state.WithLock(cfg, true, func(st *state.State) error {
-				st.PiSync.CheckedOn = todayLocal()
-				st.PiSync.SHA256 = digest
-				st.PiSync.Source = "pi --list-models"
-				st.PiSync.Models = len(catalog)
-				if st.PiSync.Reason == "" {
-					st.PiSync.Reason = "unchanged"
-				}
-				return nil
-			})
-			ids := make([]string, 0, len(cfg.Ordinary.Routes))
-			for _, route := range cfg.Ordinary.Routes {
-				ids = append(ids, route.ID)
-			}
-			result := syncResult{
-				OK:           true,
-				Reason:       "unchanged",
-				SHA256:       digest,
-				Config:       config.Path(),
-				Source:       "pi --list-models",
-				Models:       len(catalog),
-				Added:        []string{},
-				Kept:         ids,
-				Removed:      []string{},
-				DroppedTiers: []string{},
-				Stale:        []string{},
-				StaleTiers:   []string{},
-				Routes:       len(cfg.Ordinary.Routes),
-			}
-			if asJSON {
-				printJSON(result)
-			} else {
-				fmt.Printf("qianji init: Pi catalog unchanged (%d models, %s…)\n", len(catalog), shortSHA(digest))
-			}
-			return 0
-		}
-	}
 	reason := "init"
 	if forceReinit {
 		reason = "reinit"
 	} else if force {
 		reason = "init-force"
 	}
-	result, err := syncFromPi(force, reason, catalog, digest, true)
+	result, err := syncFromPi(syncOpts{
+		force:       force,
+		reason:      reason,
+		catalog:     catalog,
+		digest:      digest,
+		dropMissing: true,
+		probeAll:    true,
+	})
 	if err != nil {
 		return fail(err)
 	}
@@ -95,13 +52,16 @@ func cmdInit(args []string, forceReinit bool) int {
 		printJSON(result)
 		return 0
 	}
-	fmt.Printf("qianji init: wrote %s (kept %d, added %d, removed %d)\n",
-		result.Config, len(result.Kept), len(result.Added), len(result.Removed))
+	fmt.Printf("qianji init: wrote %s (kept %d, added %d, removed %d, live %d/%d)\n",
+		result.Config, len(result.Kept), len(result.Added), len(result.Removed), result.Models, result.Catalog)
 	if len(result.Added) > 0 {
 		fmt.Println("added (weight=1): " + join(result.Added))
 	}
 	if len(result.Removed) > 0 {
 		fmt.Println("removed: " + join(result.Removed))
+	}
+	if len(result.ProbeFailed) > 0 {
+		fmt.Println("excluded (live probe failed): " + join(result.ProbeFailed))
 	}
 	return 0
 }

@@ -25,10 +25,14 @@ Do not add custom key scripts under `~/.pi`. Execution backend is
 `qianji init` checks that `pi` is installed. Catalog comes from
 `pi --list-models` (custom + authenticated official providers), not from
 scanning Pi config files (`models.json`, `auth.json`, `settings.json`).
-The first Qianji command each local day re-checks that catalog's sha256
-**only if it has not already been checked today**. New models merge in at
-`weight = 1`; routes missing from Pi are **kept** on this daily pass.
-`qianji init` / `qianji reinit` drop routes no longer listed.
+Init then live-probes each listed model with a cheap Pi call
+(`--thinking off`, `--no-tools`, ephemeral workdir). **Only successes are
+imported.** The first Qianji command each local day re-checks that catalog's
+sha256 **only if it has not already been checked today**. New models are
+probed then merged in at `weight = 1`; models that failed the last init
+probe stay excluded; routes missing from Pi are **kept** on this daily pass.
+`qianji init` / `qianji reinit` drop routes that are no longer listed or
+that fail the live probe.
 
 ## When to use
 
@@ -119,7 +123,8 @@ Exit codes: `0` success; `1` attempts exhausted; `2` consecutive timeouts; `75` 
 
 1. Configure Pi (official docs). Never put keys in Qianji files.
 2. Confirm `pi --list-models` lists the model.
-3. `qianji init` or `qianji reinit`. New routes start at `weight = 1`.
+3. `qianji init` or `qianji reinit`. Each listed model is live-probed; only
+   successes are imported. New routes start at `weight = 1`.
 
 See [providers.md](references/providers.md) and [routing.md](references/routing.md).
 Host install paths: [hosts.md](references/hosts.md).

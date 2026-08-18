@@ -12,7 +12,7 @@ Qianji 只选路。供应商、协议和 API key 留在官方 [Pi](https://githu
                                              模型与凭据
 ```
 
-- 目录来自 `pi --list-models`，运行时**不读** `models.json` / `auth.json` / `settings.json`
+- 目录来自 `pi --list-models`，再经一次廉价 live probe；运行时**不读** `models.json` / `auth.json` / `settings.json`
 - 执行：`pi --provider --model --print --no-session`，prompt 走 stdin
 - 「强 / 最强」是 Qianji 档位，映射到 Pi 的 model + thinking
 
@@ -65,10 +65,10 @@ qianji status
 
 ```bash
 pi --list-models
-qianji init          # 新模型 weight = 1，已有权重保留
+qianji init          # live probe 每个模型，成功的才导入；已有权重保留
 ```
 
-`qianji init` / `reinit` 会丢掉 Pi 目录里已经不存在的路由。日常命令只做每日检查：已检查过则跳过；新模型并入，缺失的路由**先留着**。
+`qianji init` / `reinit` 会对 `pi --list-models` 里的每个模型做一次廉价探测（`--thinking off`、关掉 tools/skills，空临时目录，60s 超时）。只有探测成功的模型会写入 `config.toml`；失败的排除。日常命令只做每日检查：已检查过则跳过；新模型会先探测再并入，上次探测失败的不会加回来；缺失的路由**先留着**。要丢掉已失败的旧路由，再跑一次 `qianji init`。
 
 ## 口令
 
@@ -80,7 +80,7 @@ qianji init          # 新模型 weight = 1，已有权重保留
 | 使用qianji强模型 | `--tier strong` → `config.toml` 的 `[tiers.strong]` |
 | 使用qianji最强模型 | `--tier strongest` → `[tiers.strongest]` |
 
-档位模型由 `qianji init` 按当前 Pi 目录生成，可改。普通池必须把**用户原文**传给 `--affinity-key`。一次 `run` 只做一个工作单元。
+档位模型由 `qianji init` 按模型家族排名生成（opus > gpt-5.6 > …，看模型名不看供应商），可改。普通池必须把**用户原文**传给 `--affinity-key`。一次 `run` 只做一个工作单元。
 
 ## 超时
 

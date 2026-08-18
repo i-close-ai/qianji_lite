@@ -243,7 +243,7 @@ maybe_init() {
     fmt_info "Pi not on PATH yet; skip qianji init. After Pi is configured, run: qianji init"
     return 0
   fi
-  fmt_info "importing Pi catalog (qianji init)"
+  fmt_info "importing Pi catalog (qianji init; live-probes each model)"
   if ! "$BIN_DIR/qianji" init; then
     cat <<'EOF'
 

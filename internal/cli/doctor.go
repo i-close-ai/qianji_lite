@@ -28,10 +28,10 @@ func cmdDoctor(args []string) int {
 	check("skill", skillDest(), fileExists(filepath.Join(skillDest(), "SKILL.md")))
 
 	if os.Getenv("ANTHROPIC_AUTH_TOKEN") != "" || os.Getenv("ANTHROPIC_API_KEY") != "" {
-		fmt.Printf("%-12s %s  %s\n", "warn", "anthropic-env", "set; pi --list-models will list Anthropic models even without Pi /login")
+		fmt.Printf("%-12s %s  %s\n", "warn", "anthropic-env", "set; pi --list-models lists Anthropic models even without Pi /login; qianji init live-probe will drop them if the call fails")
 	}
 	if os.Getenv("OPENAI_API_KEY") != "" {
-		fmt.Printf("%-12s %s  %s\n", "warn", "openai-env", "set; pi --list-models will list OpenAI models even without Pi /login")
+		fmt.Printf("%-12s %s  %s\n", "warn", "openai-env", "set; pi --list-models lists OpenAI models even without Pi /login; qianji init live-probe will drop them if the call fails")
 	}
 
 	links := []struct{ name, path string }{

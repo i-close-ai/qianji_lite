@@ -32,12 +32,14 @@ type AffinityEntry struct {
 }
 
 type PiSync struct {
-	SHA256    string `json:"sha256"`
-	CheckedOn string `json:"checked_on"`
-	Reason    string `json:"reason,omitempty"`
-	Force     bool   `json:"force,omitempty"`
-	Source    string `json:"source,omitempty"`
-	Models    int    `json:"models,omitempty"`
+	SHA256      string   `json:"sha256"`
+	CheckedOn   string   `json:"checked_on"`
+	Reason      string   `json:"reason,omitempty"`
+	Force       bool     `json:"force,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	Models      int      `json:"models,omitempty"`
+	ProbeFailed []string `json:"probe_failed,omitempty"`
+	Probed      int      `json:"probed,omitempty"`
 }
 
 type State struct {

@@ -31,23 +31,25 @@ Other official Pi forms:
 Claude-compatible: `"api": "anthropic-messages"`. Responses: `"api": "openai-responses"`.
 
 Keep Pi credential files mode `600`. Official OpenAI/Anthropic can use `/login`
-or environment variables and need not appear in `models.json`. Trust
-`pi --list-models`.
+or environment variables and need not appear in `models.json`. `pi --list-models`
+is the candidate list; `qianji init` only imports models that pass a cheap live
+probe.
 
 ## 2. Qianji: import
 
 ```bash
-qianji init      # merge current `pi --list-models`
-qianji reinit    # force merge, keep existing weights
+qianji init      # live-probe current `pi --list-models`; keep successes
+qianji reinit    # same, force merge, keep existing weights
 ```
 
 If `pi` is missing, re-run `tools/install.sh` or:
 
 `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`
 
-Init asks Pi for currently usable models (custom + authenticated official
-providers) and merges into `~/.qianji/config.toml` (old weights kept, new
-models `weight = 1`).
+Init asks Pi for currently listed models (custom + authenticated official
+providers), live-probes each one, and merges successes into
+`~/.qianji/config.toml` (old weights kept, new models `weight = 1`). Models
+that fail the probe are not imported.
 
 ## 3. Call it
 

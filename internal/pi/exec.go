@@ -97,6 +97,10 @@ func (e hintError) Error() string { return e.s }
 func fmtError(s string) error { return hintError{s} }
 
 func RunRoute(cfg config.Config, route config.Route, prompt, workdir string, timeoutSec int) ExecResult {
+	return runRoute(cfg, route, prompt, workdir, timeoutSec, nil, os.Environ())
+}
+
+func runRoute(cfg config.Config, route config.Route, prompt, workdir string, timeoutSec int, extraArgs, env []string) ExecResult {
 	binary, err := FindConfigured(cfg)
 	if err != nil {
 		return ExecResult{OK: false, Error: err.Error(), ErrorType: "provider_failure"}
@@ -107,6 +111,7 @@ func RunRoute(cfg config.Config, route config.Route, prompt, workdir string, tim
 		"--print",
 		"--no-session",
 	}
+	args = append(args, extraArgs...)
 	if route.Effort != "" {
 		args = append(args, "--thinking", route.Effort)
 	}
@@ -118,7 +123,10 @@ func RunRoute(cfg config.Config, route config.Route, prompt, workdir string, tim
 	if workdir != "" {
 		cmd.Dir = workdir
 	}
-	cmd.Env = os.Environ()
+	if env == nil {
+		env = os.Environ()
+	}
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	output := string(out)
 	if ctx.Err() == context.DeadlineExceeded {

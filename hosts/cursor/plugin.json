@@ -1,0 +1,9 @@
+{
+  "name": "qianji",
+  "description": "Route tasks through Qianji to Pi-backed models",
+  "version": "2.0.0",
+  "author": {
+    "name": "i-close-ai"
+  },
+  "keywords": ["qianji", "router", "pi"]
+}

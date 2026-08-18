@@ -1,0 +1,6 @@
+/qianji
+/qianji.exe
+dist/
+.DS_Store
+*.test
+coverage.out

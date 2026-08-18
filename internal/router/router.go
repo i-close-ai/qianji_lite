@@ -201,6 +201,23 @@ func MarkFailure(cfg config.Config, st *state.State, routeID, errMsg string, now
 	return delay
 }
 
+func MarkTimeout(cfg config.Config, st *state.State, routeID string, now int64) {
+	now = resolveNow(now)
+	lookup := config.RouteByID(cfg)
+	route, ok := lookup[routeID]
+	if !ok {
+		return
+	}
+	rs := st.Routes[routeID]
+	rs.Timeouts++
+	rs.LastTimeout = now
+	st.Routes[routeID] = rs
+	cs := st.Circuits[route.Circuit]
+	cs.Timeouts++
+	cs.LastTimeout = now
+	st.Circuits[route.Circuit] = cs
+}
+
 func EarliestBlocked(st *state.State) int64 {
 	var earliest int64
 	first := true

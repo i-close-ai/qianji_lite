@@ -86,6 +86,14 @@ func StatePath() string {
 	return filepath.Join(Home(), "state.json")
 }
 
+func LogDir() string {
+	return filepath.Join(Home(), "logs")
+}
+
+func RunLogPath() string {
+	return filepath.Join(LogDir(), "runs.jsonl")
+}
+
 func LockPath() string {
 	return filepath.Join(Home(), ".lock")
 }

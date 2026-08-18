@@ -113,6 +113,16 @@ qianji skill install
 
 普通池里供应商失败会熔断该 `provider:model`（2m → 5m → 20m → 1h）并换模型重试；**超时不熔断**，本轮排除后最多再试一跳。`--tier` 失败或超时则直接退出。某模型不想再用：把 `weight` 设为 `0`。
 
+## 运行日志
+
+每次 Pi 尝试追加一行到 `~/.qianji/logs/runs.jsonl`（不含 prompt 和 API key）。
+
+- **成功**：短记录（ts、route、via、elapsed_ms）
+- **超时 / 失败 / 全熔断**：详细记录（error_type、error、output_head、timeout_sec、prompt_bytes 等）
+- **体积**：当前文件约 4MB 时轮转成 `runs.jsonl.1` … `.4`，大约最多 20MB
+
+超时会计入 `state.json` 的 `timeouts`，**不熔断**。`qianji status` 会打印日志路径。
+
 `--print` 下官方 Pi 没有命令级权限弹窗。不要默认给 Pi 加 `--approve`：那只表示信任项目目录里的 `.pi` 扩展/设置，不是「全部授权」。
 
 ## 卸载

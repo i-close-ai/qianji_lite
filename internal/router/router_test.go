@@ -65,6 +65,21 @@ func TestCircuitSkipsBlocked(t *testing.T) {
 	}
 }
 
+func TestMarkTimeoutDoesNotTripCircuit(t *testing.T) {
+	cfg := testCfg()
+	st := state.Default(cfg)
+	router.MarkTimeout(cfg, &st, "heavy", 1000)
+	if st.Routes["heavy"].Timeouts != 1 {
+		t.Fatalf("timeouts=%d", st.Routes["heavy"].Timeouts)
+	}
+	if st.Circuits["p:heavy"].BlockedUntil != 0 {
+		t.Fatal("timeout must not open the circuit")
+	}
+	if st.Circuits["p:heavy"].ConsecutiveFailures != 0 {
+		t.Fatal("timeout must not count as provider failure")
+	}
+}
+
 func TestSelectDoesNotRecordSelection(t *testing.T) {
 	cfg := testCfg()
 	st := state.Default(cfg)

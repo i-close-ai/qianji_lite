@@ -13,6 +13,7 @@ import (
 	"github.com/i-close-ai/qianji_lite/internal/config"
 	"github.com/i-close-ai/qianji_lite/internal/pi"
 	"github.com/i-close-ai/qianji_lite/internal/router"
+	"github.com/i-close-ai/qianji_lite/internal/runlog"
 	"github.com/i-close-ai/qianji_lite/internal/state"
 )
 
@@ -53,13 +54,22 @@ func cmdRun(args []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "qianji timeout: %ds\n", timeoutSec)
 	explicit := *routeID != "" || tierName != "" || *provider != "" || *model != ""
+	pool := "ordinary"
+	if tierName != "" {
+		pool = tierName
+	} else if explicit {
+		pool = "explicit"
+	}
+	promptBytes := len(text)
 	if explicit {
 		route, err := resolveExplicit(cfg, *routeID, tierName, *provider, *model, *effort, *effect)
 		if err != nil {
 			return fail(err)
 		}
 		printRoute(route)
+		started := time.Now()
 		res := pi.RunRoute(cfg, route, text, *workdir, timeoutSec)
+		logPiAttempt(pool, route, 1, 1, timeoutSec, promptBytes, "", started, res)
 		if res.OK {
 			writeOutput(res.Output)
 			if _, ok := config.RouteByID(cfg)[route.ID]; ok {
@@ -71,9 +81,13 @@ func cmdRun(args []string) int {
 			return 0
 		}
 		fmt.Fprintf(os.Stderr, "qianji %s: %s (%s)\n", orDefault(res.ErrorType, "failure"), route.ID, res.Error)
-		if _, ok := config.RouteByID(cfg)[route.ID]; ok && res.ErrorType == "provider_failure" {
+		if _, ok := config.RouteByID(cfg)[route.ID]; ok {
 			_ = state.WithLock(cfg, true, func(st *state.State) error {
-				router.MarkFailure(cfg, st, route.ID, res.Error, -1)
+				if res.ErrorType == "timeout" {
+					router.MarkTimeout(cfg, st, route.ID, -1)
+				} else if res.ErrorType == "provider_failure" {
+					router.MarkFailure(cfg, st, route.ID, res.Error, -1)
+				}
 				return nil
 			})
 		}
@@ -108,12 +122,17 @@ func cmdRun(args []string) int {
 		}
 		if route == nil {
 			fmt.Fprintf(os.Stderr, "qianji: all ordinary routes blocked until %s\n", router.FormatTime(earliest))
+			logPiAttempt(pool, config.Route{}, i+1, attempts, timeoutSec, promptBytes, affinityHash, time.Now(), pi.ExecResult{
+				OK: false, ErrorType: "all_blocked", Error: "all ordinary routes blocked",
+			})
 			return 75
 		}
 		chosen := *route
 		attempted = append(attempted, chosen.ID)
 		printRoute(chosen)
+		started := time.Now()
 		res := pi.RunRoute(cfg, chosen, text, *workdir, timeoutSec)
+		logPiAttempt(pool, chosen, i+1, attempts, timeoutSec, promptBytes, affinityHash, started, res)
 		if res.OK {
 			_ = state.WithLock(cfg, true, func(st *state.State) error {
 				router.MarkSuccess(cfg, st, chosen.ID, -1)
@@ -127,6 +146,7 @@ func cmdRun(args []string) int {
 			consecutiveTimeouts++
 			exclude[chosen.ID] = struct{}{}
 			_ = state.WithLock(cfg, true, func(st *state.State) error {
+				router.MarkTimeout(cfg, st, chosen.ID, -1)
 				router.ClearAffinity(st, affinityHash)
 				return nil
 			})
@@ -266,6 +286,51 @@ func printRoute(route config.Route) {
 		route.ID, route.Provider, route.Model, effort, extra)
 }
 
+func logPiAttempt(pool string, route config.Route, attempt, maxAttempts, timeoutSec, promptBytes int, affinityHash string, started time.Time, res pi.ExecResult) {
+	via := route.Via
+	if via == "" && pool != "ordinary" && route.ID != "" {
+		via = "explicit"
+	}
+	elapsed := int64(0)
+	if !started.IsZero() {
+		elapsed = time.Since(started).Milliseconds()
+		if elapsed < 0 {
+			elapsed = 0
+		}
+	}
+	if err := runlog.Append(runlog.Event{
+		Pool:        pool,
+		RouteID:     route.ID,
+		Circuit:     route.Circuit,
+		Provider:    route.Provider,
+		Model:       route.Model,
+		Effort:      route.Effort,
+		Via:         via,
+		Attempt:     attempt,
+		MaxAttempts: maxAttempts,
+		TimeoutSec:  timeoutSec,
+		ElapsedMs:   elapsed,
+		OK:          res.OK,
+		ErrorType:   res.ErrorType,
+		Error:       res.Error,
+		OutputHead:  outputHead(res),
+		PromptBytes: promptBytes,
+		Affinity:    runlog.ShortAffinity(affinityHash),
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "qianji: run log write failed: %v\n", err)
+	}
+}
+
+func outputHead(res pi.ExecResult) string {
+	if res.OK {
+		return ""
+	}
+	if head := runlog.OutputHead(res.Output); head != "" {
+		return head
+	}
+	return res.Error
+}
+
 func writeOutput(output string) {
 	os.Stdout.WriteString(output)
 	if output != "" && !strings.HasSuffix(output, "\n") {
@@ -366,6 +431,7 @@ func cmdStatus(args []string) int {
 		Selections          int    `json:"selections"`
 		Successes           int    `json:"successes"`
 		Failures            int    `json:"failures"`
+		Timeouts            int    `json:"timeouts"`
 		LastError           string `json:"last_error"`
 	}
 	var rows []row
@@ -389,6 +455,7 @@ func cmdStatus(args []string) int {
 				Selections:          rs.Selections,
 				Successes:           rs.Successes,
 				Failures:            rs.Failures,
+				Timeouts:            rs.Timeouts,
 				LastError:           cs.LastError,
 			})
 		}
@@ -400,14 +467,15 @@ func cmdStatus(args []string) int {
 			"strategy":         cfg.Strategy,
 			"affinity_entries": affinityN,
 			"pi_sync":          sync,
+			"run_log":          config.RunLogPath(),
 			"routes":           rows,
 			"tiers":            cfg.Tiers,
 		})
 		return 0
 	}
-	fmt.Println("ROUTE                 WEIGHT  STATUS   FAILS  BLOCKED_UNTIL")
+	fmt.Println("ROUTE                 WEIGHT  STATUS   FAILS  TIMEOUTS  BLOCKED_UNTIL")
 	for _, r := range rows {
-		fmt.Printf("%-21s %6d  %-7s  %5d  %s\n", r.ID, r.Weight, r.Status, r.ConsecutiveFailures, router.FormatTime(r.BlockedUntil))
+		fmt.Printf("%-21s %6d  %-7s  %5d  %8d  %s\n", r.ID, r.Weight, r.Status, r.ConsecutiveFailures, r.Timeouts, router.FormatTime(r.BlockedUntil))
 	}
 	fmt.Printf("strategy=%s sticky=%v affinity=%d\n", cfg.Strategy.Ordinary, cfg.Strategy.StickyProbability, affinityN)
 	sha := sync.SHA256
@@ -421,6 +489,7 @@ func cmdStatus(args []string) int {
 		checked = "-"
 	}
 	fmt.Printf("pi_sync checked_on=%s sha256=%s\n", checked, sha)
+	fmt.Printf("run_log %s\n", config.RunLogPath())
 	return 0
 }
 

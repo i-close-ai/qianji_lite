@@ -9,7 +9,7 @@ import (
 	"github.com/i-close-ai/qianji_lite/internal/config"
 )
 
-const Version = 6
+const Version = 7
 
 type Counters struct {
 	Current             int    `json:"current"`
@@ -18,9 +18,11 @@ type Counters struct {
 	LastFailure         int64  `json:"last_failure"`
 	LastError           string `json:"last_error"`
 	LastSuccess         int64  `json:"last_success"`
+	LastTimeout         int64  `json:"last_timeout"`
 	Selections          int    `json:"selections"`
 	Successes           int    `json:"successes"`
 	Failures            int    `json:"failures"`
+	Timeouts            int    `json:"timeouts"`
 }
 
 type AffinityEntry struct {
